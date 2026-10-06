@@ -4,11 +4,11 @@
 
 ## Запуск
 
-Node 20+. `npm ci`, `npm start`. На Render: Build `npm ci`, Start `npm start`, порт `process.env.PORT`.
+Node 20.12+. `npm ci`, `npm start`. На Render: Build `npm ci`, Start `npm start`, порт `process.env.PORT`.
 
 Серверные переменные: `OPENROUTER_API_KEY`; необязательная `OPENROUTER_MODEL` (fallback `openrouter/free`); необязательный стабильный `SAVE_SECRET` для сохранений. Ключи не находятся во frontend, Git и логах. В отсутствие `SAVE_SECRET` ключ шифрования выводится из API-ключа; его смена делает прежние snapshots несовместимыми. Если оба отсутствуют, сохранения живут до перезапуска процесса.
 
-`.env.example` — образец. Сервер читает environment; для локального `.env` на Node 20.6+ можно использовать `node --env-file=.env server.js`. `/api/health` подтверждает конфигурацию, **не** успех генерации.
+`.env.example` — образец. Сервер автоматически читает локальный `.env` при `npm start`; заданные переменные хостинга имеют приоритет. Локальный ключ OpenRouter нужен отдельно от ключа на Render. Не отправляйте ключ в чат или Git. `/api/health` подтверждает конфигурацию, **не** успех генерации.
 
 ## Сцена и архитектура
 
@@ -46,7 +46,7 @@ POST JSON; `sessionId` и `requestId` — UUID. Ответ: `schemaVersion:3`, `
 
 - `/api/start`: `{sessionId,save?}` — идемпотентное начало/восстановление. Начальная сцена серверная, без вызова AI.
 - `/api/message`: `{sessionId,save?,requestId,text}` — речь/действие Алины, до 3000 символов. Endpoint сохранён для совместимости маршрутов, семантика теперь сценическая. Старые `channel:Five/group` отвергаются, `channel:scene` допустим, поле не нужно.
-- `/api/tick`: `{sessionId,save?}` — независимые события при открытом клиенте, не чаще 90 секунд.
+- `/api/tick`: `{sessionId,save?}` — независимые события при открытом клиенте, не чаще 30 секунд.
 - `/api/health`: конфигурация без секретов.
 
 HTTP 400: плохой запрос; 403: cross-site POST; 409: ход занят; 410: сессия отсутствует без snapshot; 422: snapshot не прошёл проверку; 429: менее 1.5 секунд между пользовательскими ходами.
@@ -66,3 +66,11 @@ CSS: `100dvh` fallback, visualViewport, safe-area insets, скролл отде�
 `npm run check`, `npm test`. Браузерный сценарий `scripts/browser-smoke.cjs` использует отдельно доступный Playwright (не production dependency). Переменные: `PLAYWRIGHT_MODULE`, `PLAYWRIGHT_BROWSERS_PATH`, `BROWSER_ARTIFACT_DIR`, `BASE_URL`. Проверять на локальном сервере без AI-ключа для fallback-сценария.
 
 [Отчёт и список файлов](docs/VERIFICATION.md). PR остаётся draft до проверки реальных ответов OpenRouter и физического iPhone. В исходном репозитории у подключённого аккаунта READ-доступ; только принятие изменений владельцем и deploy Render обновят прежний рабочий домен. Не считать `/api/health ai:true` доказательством успешной генерации.
+
+## Autonomous characters and recovery
+
+After the visible authored opening, `/api/awaken` starts two AI decisions once per session. Each NPC has a private immediate agenda, personality, witnessed knowledge and memory. Player turns prioritize addressed present characters; idle ticks schedule one present and one offscreen character by the fewest completed decisions, so all seven receive turns. Each decision is a separate OpenRouter completion. Movement and speech after the opening are chosen by AI and validated against physical state. No AI dialogue is fabricated when credentials are missing. Simulation runs only while a client is open; background tabs pause it.
+
+`lib/season.js` is a server-only season bible with three acts, motives and causal rules. The director releases evidence gradually and offers three physical resolutions. NPC prompts receive their own immediate agenda, never the season bible. The client receives only witnessed evidence, not future milestones or endings.
+
+Invalid authenticated snapshots are never trusted or converted from unsigned client history. The client offers export and restart; before restarting it stores the raw old cache in `ua_recovery_backup`. Truly empty saves can restart automatically after backup. History with events, a pending turn or a draft requires a restart choice. The previous encrypted world cannot be restored after losing its secret. Keep `SAVE_SECRET` stable; the local `.env` remains ignored by Git. New-story confirmation uses in-page buttons rather than native browser dialogs.

@@ -131,8 +131,10 @@ test('story reveals evidence gradually to actual witnesses, never global hidden 
 });
 test('offscreen arrival does not retroactively reveal private scene events', () => {
   const state = freshState(); applyPlayerInput(state, 'Никому не говорите: СЕЙФ_77.', 'request'); state.turn = 4;
-  advanceStory(state, 'tick'); assert.equal(state.characterLocations.Diego, 'corridor');
-  advanceStory(state, 'tick'); assert.equal(state.characterLocations.Diego, 'salon');
+  advanceStory(state, 'tick'); assert.equal(state.characterLocations.Diego, 'basement');
+  applyAIOutput(state, { events: [{type:'action',actor:'Diego',op:'move',target:'corridor'}] }, {actor:'Diego'});
+  applyAIOutput(state, { events: [{type:'action',actor:'Diego',op:'move',target:'salon'}] }, {actor:'Diego'});
+  assert.equal(state.characterLocations.Diego, 'salon');
   assert.ok(!JSON.stringify(actorContext(state, 'Diego')).includes('СЕЙФ_77'));
 });
 test('encrypted scene save survives restart, rejects tampering, migrates old private history', () => {
@@ -170,4 +172,16 @@ test('whispered speech has a physical recipient and cannot reach absent NPC',()=
   assert.ok(klaus.includes('КОД_08'));assert.ok(klaus.includes('Никому не говори'));assert.ok(!five.includes('КОД_08'));assert.ok(!five.includes('Никому не говори'));
   applyPlayerInput(state,'Шепчу Диего: НЕВОЗМОЖНЫЙ_СЕКРЕТ.','2');
   assert.ok(!JSON.stringify(actorContext(state,'Diego')).includes('НЕВОЗМОЖНЫЙ_СЕКРЕТ'));assert.ok(!JSON.stringify(actorContext(state,'Klaus')).includes('НЕВОЗМОЖНЫЙ_СЕКРЕТ'));
+});
+test('private season resolves from physical choices and never enters client or NPC prompts', () => {
+  for (const [room,holder,expected] of [['basement','Alina','stabilized'],['courtyard','Alina','outside'],['archive',null,'preserved']]) {
+    const state=freshState();state.turn=34;
+    state.story.unlocked=['time_slip','eighth_shadow','archive_08','ghost_warning','commission','competing_futures','record_recovered','convergence'];
+    state.story.lastBeatTurn=30;state.characterLocations.Alina=room;state.currentLocation=room;
+    Object.assign(state.importantObjects.file08,{holder,location:holder?null:room,hidden:false,lastExaminedBy:'Alina',lastExaminedTurn:34});
+    advanceStory(state);assert.equal(state.story.ending,expected);
+    assert.ok(!JSON.stringify(publicState(state)).includes('antagonist'));
+    assert.ok(!JSON.stringify(actorContext(state,'Five')).includes('falseLead'));
+    assert.ok(!state.events.some(e=>e.actor==='Alina'));
+  }
 });

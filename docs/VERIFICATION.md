@@ -68,3 +68,16 @@ Headless Chromium, desktop 1280×900 и mobile 390×844:
 - `docs/previews/desktop-scene.png`, `docs/previews/mobile-scene.png`, `docs/previews/mobile-keyboard.png`
 
 `agents.json`, серверный OpenRouter endpoint, runtime dependencies и PNG/SVG PWA icons сохранены. В совокупном PR также остаются прежние добавления `.env.example`, `.gitignore`, `package-lock.json` и иконки.
+
+## Follow-up: empty scene and autonomous NPCs
+
+- `npm test`: 40 passing tests, including idempotent opening AI, all seven agents receiving idle decisions, no season disclosure in NPC contexts and three resolutions from physical state. Model calls are mocked.
+- `npm run check`: passes, including the private season module.
+- Local `/api/health` reports `ai:false`, `durableSave:true`. Real OpenRouter generation remains unverified and unavailable until a local key is configured.
+- The existing browser displayed recovery/export buttons for the old rejected save. A new local browser tab displayed all four opening events and an enabled input, plus an explicit missing-AI notice. Screenshot: `previews/recovery-scene.jpg`.
+- The in-app browser stalled on a native confirmation dialog. Confirmation now uses page buttons. The complete restart-button path was not verified in the stalled tab. No claim of restored old encrypted world state is made.
+- Automatic `.env` loading means ordinary `npm start` uses the existing local stable save secret, rather than generating a different secret each time.
+- After the opening, NPC movement no longer uses the scripted Diego-arrival route. Each AI agent chooses its own valid actions; the director advances world events and releases evidence.
+- Production has not been deployed or changed by this follow-up.
+
+Changed files in this follow-up: `server.js`, `lib/season.js`, `lib/character-agents.js`, `lib/story-engine.js`, `public/app.js`, `public/sw.js`, `package.json`, `package-lock.json`, `test/api.test.js`, `test/simulation.test.js`, `README.md`, this verification report and `docs/previews/recovery-scene.jpg`.

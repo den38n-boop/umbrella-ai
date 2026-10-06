@@ -2,8 +2,14 @@ import express from 'express';
 import OpenAI from 'openai';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { loadEnvFile } from 'node:process';
 import { freshState, startScene, parseAIOutput, applyAIOutput, actorContext, selectActors, advanceStory, applyPlayerInput, publicState, migrateState, SYSTEM } from './lib/simulation.js';
 import { saveCodec } from './lib/save.js';
+
+// npm start and direct launches use the same private local configuration.
+// Existing hosting environment variables take precedence; never print values.
+try { loadEnvFile(fileURLToPath(new URL('./.env', import.meta.url))); }
+catch (error) { if (error.code !== 'ENOENT') throw Error('Не удалось прочитать локальный файл .env'); }
 
 export function createApp({ generate, secret = process.env.SAVE_SECRET || process.env.OPENROUTER_API_KEY || randomBytes(32).toString('hex'), now = () => Date.now() } = {}) {
   const app = express();
@@ -32,6 +38,7 @@ export function createApp({ generate, secret = process.env.SAVE_SECRET || proces
     return response.choices?.[0]?.message?.content || '';
   });
   async function simulate(state, cause) {
+    if (!generate && !process.env.OPENROUTER_API_KEY) return 'unconfigured';
     let aiStatus = 'ok';
     for (const actor of selectActors(state, cause)) {
       const context = actorContext(state, actor);
@@ -52,7 +59,7 @@ export function createApp({ generate, secret = process.env.SAVE_SECRET || proces
   }
   function reply(res, id, state, aiStatus = 'idle') {
     state.lastAccess = now();
-    res.json({ sessionId: id, ...publicState(state), save: codec.encode(id, state), aiStatus });
+    res.json({ sessionId: id, ...publicState(state), save: codec.encode(id, state), aiStatus: !generate && !process.env.OPENROUTER_API_KEY ? 'unconfigured' : aiStatus });
   }
   function prune() {
     for (const [id, state] of sessions) if (!busy.has(id) && now() - state.lastAccess > 3600000) sessions.delete(id);
@@ -98,9 +105,17 @@ export function createApp({ generate, secret = process.env.SAVE_SECRET || proces
     advanceStory(state, 'player');
     reply(res, id, state, await simulate(state, 'player'));
   }));
+  app.post('/api/awaken', route(async (req, res, id) => {
+    const state = existing(req, res, id); if (!state) return;
+    if (state.autonomousStarted) return reply(res, id, state);
+    const status = await simulate(state, 'opening');
+    if (status === 'ok') state.autonomousStarted = true;
+    state.lastTick = now();
+    reply(res, id, state, status);
+  }));
   app.post('/api/tick', route(async (req, res, id) => {
     const state = existing(req, res, id); if (!state) return;
-    if (now() - state.lastTick < 90000) return reply(res, id, state);
+    if (now() - state.lastTick < 30000) return reply(res, id, state);
     state.lastTick = now();
     advanceStory(state, 'tick');
     reply(res, id, state, await simulate(state, 'tick'));

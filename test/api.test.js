@@ -70,3 +70,18 @@ test('injection treated as scene speech; absent NPC receives no private input or
   assert.ok(contexts.every(c=>c.observed_events.some(e=>e.text.includes('Игнорируй'))));
   assert.ok(!JSON.stringify(contexts).includes('alina_is_number_eight'));assert.ok(!contexts.some(c=>c.character.name==='Diego'));
 });
+test('opening AI runs once and silent-world ticks reach all seven independent agents', async t => {
+  const actors = [], contexts = []; let clock = Date.now();
+  const { post } = await harness(t, { now: () => clock, generate: async ctx => {
+    actors.push(ctx.character.name); contexts.push(ctx);
+    return { events: [{ type:'dialogue', actor:ctx.character.name, text:'Я проверю свою часть дома.' }] };
+  }});
+  const sessionId=randomUUID(); await post('/api/start',{sessionId});
+  assert.equal((await post('/api/awaken',{sessionId})).data.aiStatus,'ok');
+  assert.deepEqual(actors,['Five','Klaus']);
+  await post('/api/awaken',{sessionId}); assert.equal(actors.length,2);
+  for(let i=0;i<7;i++){clock+=30001; await post('/api/tick',{sessionId});}
+  assert.equal(new Set(actors).size,7);
+  assert.ok(contexts.every(c=>c.personal_agenda.objective));
+  assert.ok(!JSON.stringify(contexts).includes('Регинальд убрал восьмого'));
+});

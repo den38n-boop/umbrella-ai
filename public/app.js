@@ -98,17 +98,39 @@ async function ingest(result, animate = true) {
     delivered.add(e.id); renderHistory(); notify(e); persist();
   }
   $('typing').textContent = '';
-  if (result.aiStatus === 'unavailable') banner('Продолжение сцены временно недоступно. Твой ход и состояние мира сохранены.'); else $('banner').hidden = true;
+  if (result.aiStatus === 'unconfigured') banner('Персонажи ждут подключения AI. Добавьте ключ OpenRouter в .env сервера и перезапустите его.');
+  else if (result.aiStatus === 'unavailable') banner('AI временно не отвечает. Твой ход и состояние мира сохранены.'); else $('banner').hidden = true;
 }
 function setWorking(value) { working = value; $('send').disabled = value || !restored; }
 function report(error) {
   $('typing').textContent = '';
   banner(error instanceof TypeError ? 'Нет связи с сервером. История и черновик остаются на устройстве.' : error.name === 'AbortError' ? 'Сервер долго отвечает. Повторная отправка не создаст второй ход.' : error.message, error.code !== 'INVALID_SAVE');
+  if (error.code === 'INVALID_SAVE') {
+    delivered = new Set(events.map(e => e.id)); renderHistory();
+    const download = node('button', '', 'Скачать старую историю'); download.onclick = () => $('export').click();
+    const restart = node('button', '', 'Начать заново'); restart.onclick = () => $('new-game').click();
+    $('banner').append(download, restart);
+  }
+}
+function backupHistory() {
+  // Keep the raw old snapshot, including legacy data, before any reset.
+  // An unauthenticated save is never converted into trusted world state.
+  localStorage.setItem('ua_recovery_backup', JSON.stringify({ current: localStorage.getItem(CACHE_KEY), legacy: localStorage.getItem('ua_game_v2'), at: new Date().toISOString() }));
+}
+async function awaken() {
+  await ingest(await call('/api/awaken'));
 }
 async function connect() {
   if (working) return; setWorking(true);
-  try { await ingest(await call('/api/start')); restored = true; }
-  catch (e) { report(e); }
+  try { await ingest(await call('/api/start')); restored = true; await awaken(); }
+  catch (e) {
+    if (e.code === 'INVALID_SAVE' && !events.length && !legacy?.messages?.length && !pending && !draft) {
+      try {
+        backupHistory(); sid = crypto.randomUUID(); save = ''; delivered = new Set();
+        await ingest(await call('/api/start')); restored = true; await awaken();
+      } catch (failure) { report(failure); }
+    } else report(e);
+  }
   finally { setWorking(false); }
 }
 async function sendPending() {
@@ -152,16 +174,24 @@ $('import').onchange = async e => {
     pending = null; delivered = new Set(); draft = ''; $('input').value = ''; await ingest(result, false); restored = true;
   } catch (e) { report(e); } finally { setWorking(false); e.target.value = ''; }
 };
-$('new-game').onclick = async () => {
-  if (working || !confirm('Начать новую историю? Текущую можно предварительно скачать в настройках.')) return;
+async function restartStory() {
+  if (working) return;
+  try { backupHistory(); } catch { banner('Не удалось сохранить резервную копию. Скачайте историю перед перезапуском.'); return; }
   sid = crypto.randomUUID(); events = []; save = ''; scene = {}; inventory = []; objects = []; exits = []; delivered = new Set(); pending = null; draft = ''; $('input').value = ''; restored = false;
   persist(); renderHistory(true); renderScene(); await connect();
+}
+$('new-game').onclick = () => {
+  if (working) return;
+  banner('Начать новую историю? Старая останется в резервной копии на устройстве.');
+  const yes = node('button', '', 'Да, начать новую'); yes.onclick = restartStory;
+  const no = node('button', '', 'Отмена'); no.onclick = () => { $('banner').hidden = true; };
+  $('banner').append(yes, no);
 };
 async function tick() {
   if (document.hidden || working || pending || !restored || !navigator.onLine) return;
   setWorking(true); try { await ingest(await call('/api/tick')); } catch (e) { report(e); } finally { setWorking(false); }
 }
-setInterval(tick, 90000);
+setInterval(tick, 30000);
 window.addEventListener('online', () => pending ? sendPending() : connect());
 window.addEventListener('offline', () => banner('Нет соединения. История и черновик сохранены на устройстве.'));
 document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });
