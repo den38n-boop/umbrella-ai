@@ -1,13 +1,27 @@
-<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#0b0c10"><link rel="manifest" href="/manifest.webmanifest"><title>Umbrella Academy ☂️</title><style>
-*{box-sizing:border-box}body{margin:0;background:#090a0e;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;height:100dvh}.app{height:100dvh;display:flex;flex-direction:column}.top{padding:calc(12px + env(safe-area-inset-top)) 16px 12px;background:#111319;border-bottom:1px solid #242833}.title{font-weight:700;font-size:18px}.sub{font-size:12px;color:#9299a8;margin-top:3px}.chat{flex:1;overflow:auto;padding:16px}.row{margin:9px 0;display:flex}.mine{justify-content:flex-end}.bubble{max-width:82%;background:#232731;padding:9px 12px;border-radius:18px 18px 18px 5px;line-height:1.32}.mine .bubble{background:#3277ef;border-radius:18px 18px 5px 18px}.name{font-size:11px;font-weight:700;color:#aeb7c9;margin-bottom:3px}.mine .name{display:none}.composer{display:flex;gap:8px;padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:#111319;border-top:1px solid #242833}input{flex:1;border:1px solid #303643;background:#191c23;color:white;border-radius:22px;padding:12px 15px;font-size:16px;outline:none}button{border:0;border-radius:22px;background:#3277ef;color:white;padding:0 17px;font-weight:700}.err{background:#4a1d22;padding:10px;margin:10px;border-radius:12px;font-size:13px}.typing{color:#8f96a5;font-size:12px;padding:0 17px 8px;min-height:20px}
-</style></head><body><div class="app"><div class="top"><div class="title">Umbrella Academy ☂️</div><div class="sub">групповой чат · AI simulation</div></div><div id="chat" class="chat"></div><div id="typing" class="typing"></div><form id="form" class="composer"><input id="input" autocomplete="off" placeholder="Сообщение…"><button>↑</button></form></div><script>
-let sid=localStorage.ua_sid||crypto.randomUUID(); localStorage.ua_sid=sid;
-const chat=document.querySelector("#chat"),typing=document.querySelector("#typing"),input=document.querySelector("#input");
-function render(ms){chat.innerHTML="";for(const m of ms){let r=document.createElement("div");r.className="row "+(m.author==="Alina"?"mine":"");r.innerHTML=`<div class="bubble"><div class="name">${esc(m.author)}</div>${esc(m.text)}</div>`;chat.append(r)}chat.scrollTop=chat.scrollHeight}
-function esc(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
-async function call(path,data){typing.textContent="кто-то печатает…";let r=await fetch(path,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(data)});let j=await r.json();typing.textContent="";if(!r.ok)throw Error(j.error||"Ошибка сервера");return j}
-async function start(){try{let j=await call("/api/start",{sessionId:sid});sid=j.sessionId;localStorage.ua_sid=sid;render(j.messages)}catch(e){chat.innerHTML=`<div class="err">${esc(e.message)}. Добавь OPENAI_API_KEY в Render.</div>`}}
-document.querySelector("#form").onsubmit=async e=>{e.preventDefault();let t=input.value.trim();if(!t)return;input.value="";try{let j=await call("/api/message",{sessionId:sid,text:t});render(j.messages)}catch(e){chat.insertAdjacentHTML("beforeend",`<div class="err">${esc(e.message)}</div>`)}};
-start();
-setInterval(async()=>{if(document.hidden)return;try{let j=await call("/api/tick",{sessionId:sid});render(j.messages)}catch{}},90000);
-</script></body></html>
+<!doctype html>
+<html lang="ru"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#101318"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/icon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/icon-192.png"><link rel="stylesheet" href="/style.css">
+<title>Umbrella · Сообщения</title><script src="/app.js" defer></script></head>
+<body>
+<div id="intro" class="intro" hidden><div class="intro-mark">☂</div><p>Лучше использовать наушники.</p></div>
+<main id="app" class="app">
+<aside class="sidebar" aria-label="Чаты">
+  <header class="list-header"><div class="eyebrow">PRIVATE LINE / 001</div><div class="heading"><h1>Сообщения<span class="dot"></span></h1><button id="settings-toggle" class="icon-button" aria-label="Настройки">···</button></div><p class="list-sub">Некоторые вещи лучше не говорить вслух.</p></header>
+  <section id="settings" class="settings" hidden><button id="notifications">Включить уведомления</button><button id="export">Скачать сохранение</button><label class="import">Загрузить сохранение<input id="import" type="file" accept="application/json"></label><button id="new-game" class="danger">Начать новую игру</button></section>
+  <div class="search-wrap"><label><span>⌕</span><input id="search" type="search" placeholder="Найти разговор" aria-label="Поиск чатов"></label></div>
+  <div class="section-label">ВАШИ РАЗГОВОРЫ <span id="chat-count">08</span></div>
+  <nav id="chat-list" class="chat-list" aria-label="Список разговоров"></nav>
+  <footer class="list-footer"><span class="avatar me">А</span><div><strong>Алина</strong><small>На связи</small></div><span class="secure">◈</span></footer>
+</aside>
+<section id="conversation" class="conversation" aria-label="Переписка">
+  <header class="chat-header"><button id="back" class="icon-button back" aria-label="Вернуться к чатам">‹</button><span id="chat-avatar" class="avatar"></span><div class="chat-heading"><h2 id="chat-title">Академия</h2><p id="chat-status">7 участников · закрытый канал</p></div><span class="header-symbol">☂</span></header>
+  <div id="banner" class="banner" role="status" hidden></div>
+  <div id="history" class="history" role="log" aria-label="Сообщения" aria-live="polite"></div>
+  <div id="typing" class="typing" role="status"></div>
+  <form id="form" class="composer"><textarea id="input" rows="1" maxlength="3000" placeholder="Написать сообщение…" aria-label="Ваше сообщение"></textarea><button id="send" type="submit" aria-label="Отправить сообщение">↑</button></form>
+  <div class="composer-note">Вы пишете за Алину. Каждое слово имеет значение.</div>
+</section>
+</main>
+</body></html>

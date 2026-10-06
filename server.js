@@ -1,364 +1,123 @@
-import express from "express";
-import OpenAI from "openai";
-import fs from "fs";
+import express from 'express';
+import OpenAI from 'openai';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+import { freshState, message, parseAIOutput, applyAIOutput, actorContext, selectActors, advanceWorld, publicState, validChannel, SYSTEM } from './lib/simulation.js';
+import { saveCodec } from './lib/save.js';
 
-const app = express();
-app.use(express.json({ limit: "1mb" }));
-app.use(express.static("public"));
-
-const WORLD = JSON.parse(fs.readFileSync("./world.json", "utf8"));
-const AGENTS = JSON.parse(fs.readFileSync("./agents.json", "utf8"));
-const sessions = new Map();
-
-function freshState() {
-  const relationships = {};
-  const memories = {};
-
-  for (const a of Object.keys(AGENTS)) {
-    relationships[a] = {
-      Alina: {
-        trust: 0,
-        affection: 0,
-        respect: 0,
-        suspicion: 0,
-        fear: 0,
-        irritation: 0,
-        protectiveness: 0
-      }
-    };
-
-    memories[a] = [];
-  }
-
-  return {
-    ...structuredClone(WORLD.state),
-    relationships,
-    memories,
-    messages: [],
-    privateChats: {},
-    characterStates: Object.fromEntries(
-      Object.keys(AGENTS).map(a => [
-        a,
-        {
-          location: "unknown",
-          activity: "idle",
-          emotion: "neutral"
+export function createApp({ generate, secret = process.env.SAVE_SECRET || process.env.OPENROUTER_API_KEY || randomBytes(32).toString('hex'), now = () => Date.now() } = {}) {
+  const app = express();
+  const sessions = new Map();
+  const busy = new Set();
+  const codec = saveCodec(secret);
+  app.disable('x-powered-by');
+  app.use(express.json({ limit: '900kb' }));
+  app.use((req, res, next) => {
+    res.set('X-Content-Type-Options', 'nosniff');
+    res.set('Referrer-Policy', 'same-origin');
+    res.set('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
+    if (req.path.startsWith('/api/')) res.set('Cache-Control', 'no-store');
+    if (req.method === 'POST' && req.get('sec-fetch-site') === 'cross-site') return res.status(403).json({ error: 'Недопустимый источник запроса.' });
+    next();
+  });
+  app.use(express.static(fileURLToPath(new URL('./public', import.meta.url)), { maxAge: 0 }));
+  const completion = generate || (async payload => {
+    if (!process.env.OPENROUTER_API_KEY) throw new Error('ai_unconfigured');
+    const client = new OpenAI({ apiKey: process.env.OPENROUTER_API_KEY, baseURL: 'https://openrouter.ai/api/v1', timeout: 20000, maxRetries: 0 });
+    const response = await client.chat.completions.create({
+      model: process.env.OPENROUTER_MODEL || 'openrouter/free',
+      messages: [{ role: 'system', content: SYSTEM }, { role: 'user', content: JSON.stringify(payload) }],
+      response_format: { type: 'json_object' }, temperature: 0.8, max_tokens: 1000
+    });
+    return response.choices?.[0]?.message?.content || '';
+  });
+  async function simulate(state, event) {
+    let aiStatus = 'ok';
+    for (const actor of selectActors(state, event)) {
+      const context = actorContext(state, actor, event.channel, event);
+      let output;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          output = parseAIOutput(await completion({ ...context, retry: attempt ? 'Предыдущий ответ не был корректным JSON. Верни только JSON с массивом messages.' : undefined }));
+          break;
+        } catch (error) {
+          // Log only an allowlisted category, never SDK request bodies, tokens or game text.
+          const category = error.message === 'invalid_ai_json' || error instanceof SyntaxError || error.message === 'invalid_ai_structure' ? 'invalid_json' : 'provider_unavailable';
+          if (category !== 'invalid_json' || attempt === 1) { console.warn(`AI: ${category}`); aiStatus = 'unavailable'; break; }
         }
-      ])
-    ),
-    discoveredInformation: [],
-    tick: 0
-  };
-}
-
-function getSession(id) {
-  if (!sessions.has(id)) {
-    sessions.set(id, freshState());
-  }
-
-  return sessions.get(id);
-}
-
-/*
-  OpenRouter использует OpenAI-совместимый API.
-  Поэтому библиотеку openai можно оставить.
-*/
-function client() {
-  if (!process.env.OPENROUTER_API_KEY) {
-    throw new Error("На сервере не задан OPENROUTER_API_KEY");
-  }
-
-  return new OpenAI({
-    apiKey: process.env.OPENROUTER_API_KEY,
-    baseURL: "https://openrouter.ai/api/v1"
-  });
-}
-
-const SYSTEM = `Ты управляешь эмерджентной симуляцией мира The Umbrella Academy.
-
-КРИТИЧЕСКИ:
-никакого заранее заданного сюжета, глав, сцен, обязательных событий, концовок или дерева выборов.
-
-Ты моделируешь только логичные последствия текущего состояния.
-
-Алина является реальным участником симуляции и ТОЛЬКО пользователь пишет за Алину.
-
-Каждый персонаж автономен и знает только сведения из его knowledge/memory и публично увиденное.
-
-Персонажи могут молчать, ошибаться, лгать, расследовать, спорить, писать друг другу и действовать вне чата.
-
-Скрытая истина мира не равна знанию персонажей.
-Не раскрывай её персонажу без причинно-следственного пути.
-
-Не заставляй персонажей обслуживать "сюжет".
-
-Ответ должен быть строго JSON без markdown:
-
-{
-  "messages":[
-    {
-      "author":"Five|Klaus|Diego|Luther|Allison|Viktor|Lila",
-      "text":"...",
-      "channel":"group"
-    }
-  ],
-  "private_messages":[],
-  "actions":[
-    {
-      "actor":"...",
-      "action":"...",
-      "visible_to_alina":false
-    }
-  ],
-  "memory_updates":[
-    {
-      "agent":"...",
-      "memory":"..."
-    }
-  ],
-  "relationship_updates":[
-    {
-      "agent":"...",
-      "trust":0,
-      "respect":0,
-      "suspicion":0,
-      "fear":0,
-      "irritation":0,
-      "protectiveness":0
-    }
-  ],
-  "world_changes":{
-    "timeline_stability_delta":0,
-    "commission_activity_delta":0,
-    "new_anomalies":[],
-    "new_dangers":[],
-    "consequences":[]
-  }
-}`;
-
-async function simulate(state, event) {
-  const payload = {
-    world_rules: WORLD.rules,
-    hidden_world_truth: WORLD.truth,
-    agents: AGENTS,
-    current_world_state: state,
-    new_event: event,
-    instruction:
-      "Реши, кто вообще имеет причину действовать сейчас. Не обязан давать ответ от каждого. Допускается ноль сообщений. Создай естественное продолжение симуляции, а не сцену."
-  };
-
-  const response = await client().chat.completions.create({
-    model: process.env.OPENROUTER_MODEL || "openrouter/free",
-
-    messages: [
-      {
-        role: "system",
-        content: SYSTEM
-      },
-      {
-        role: "user",
-        content: JSON.stringify(payload)
       }
-    ],
-
-    temperature: 0.9
-  });
-
-  const txt = (
-    response.choices?.[0]?.message?.content || ""
-  )
-    .trim()
-    .replace(/^```json\s*/i, "")
-    .replace(/^```\s*/i, "")
-    .replace(/```$/i, "")
-    .trim();
-
-  if (!txt) {
-    throw new Error("OpenRouter вернул пустой ответ");
+      if (output) applyAIOutput(state, output, { actor, channel: event.channel });
+    }
+    return aiStatus;
   }
-
-  return JSON.parse(txt);
-}
-
-function apply(state, out) {
-  for (const m of out.messages || []) {
-    state.messages.push({
-      ...m,
-      at: Date.now()
-    });
+  function reply(res, id, state, aiStatus = 'idle') {
+    state.lastAccess = now();
+    res.json({ sessionId: id, ...publicState(state), save: codec.encode(id, state), aiStatus });
   }
-
-  for (const u of out.memory_updates || []) {
-    if (state.memories[u.agent]) {
-      state.memories[u.agent].push(u.memory);
+  function prune() {
+    for (const [id, state] of sessions) if (!busy.has(id) && now() - state.lastAccess > 3600000) sessions.delete(id);
+    if (sessions.size >= 200) {
+      const candidate = [...sessions].filter(([id]) => !busy.has(id)).sort((a, b) => a[1].lastAccess - b[1].lastAccess)[0];
+      if (candidate) sessions.delete(candidate[0]);
     }
   }
-
-  for (const u of out.relationship_updates || []) {
-    const r = state.relationships[u.agent]?.Alina;
-
-    if (!r) continue;
-
-    for (const k of [
-      "trust",
-      "affection",
-      "respect",
-      "suspicion",
-      "fear",
-      "irritation",
-      "protectiveness"
-    ]) {
-      if (Number.isFinite(u[k])) {
-        r[k] = Math.max(
-          -100,
-          Math.min(100, r[k] + u[k])
-        );
-      }
+  const route = handler => async (req, res, next) => {
+    const id = req.body?.sessionId;
+    if (typeof id !== 'string' || !/^[a-zA-Z0-9_-]{16,80}$/.test(id)) return res.status(400).json({ error: 'Некорректная сессия.' });
+    if (busy.has(id)) return res.status(409).json({ error: 'Дождитесь завершения предыдущего сообщения.' });
+    busy.add(id);
+    try { await handler(req, res, id); } catch (error) { next(error); } finally { busy.delete(id); }
+  };
+  function existing(req, res, id) {
+    if (sessions.has(id)) return sessions.get(id);
+    if (req.body.save) {
+      try { const state = codec.decode(id, req.body.save); prune(); sessions.set(id, state); return state; }
+      catch { res.status(422).json({ error: 'Сохранение не удалось проверить. Локальная переписка остаётся на устройстве.', code: 'INVALID_SAVE' }); return; }
     }
+    res.status(410).json({ error: 'Сессия отсутствует. Восстановите сохранение или начните новую игру.', code: 'SESSION_MISSING' });
   }
-
-  const w = out.world_changes || {};
-
-  state.timeline_stability = Math.max(
-    0,
-    Math.min(
-      1,
-      state.timeline_stability +
-        (w.timeline_stability_delta || 0)
-    )
-  );
-
-  state.commission_activity = Math.max(
-    0,
-    Math.min(
-      1,
-      state.commission_activity +
-        (w.commission_activity_delta || 0)
-    )
-  );
-
-  state.known_anomalies.push(
-    ...(w.new_anomalies || [])
-  );
-
-  state.active_dangers.push(
-    ...(w.new_dangers || [])
-  );
-
-  state.consequences.push(
-    ...(w.consequences || [])
-  );
-
-  state.world_events.push(
-    ...(out.actions || [])
-  );
-
-  state.tick++;
-}
-
-app.post("/api/start", async (req, res) => {
-  try {
-    const id =
-      req.body.sessionId ||
-      crypto.randomUUID();
-
-    sessions.set(id, freshState());
-
-    const state = getSession(id);
-
-    const out = await simulate(state, {
-      type: "SIMULATION_START",
-      description:
-        "Алина появилась в поле внимания семьи. У Пятого есть основание подозревать связанную с ней временную аномалию. Реши автономно, действует ли кто-либо сейчас."
-    });
-
-    apply(state, out);
-
-    res.json({
-      sessionId: id,
-      messages: state.messages
-    });
-  } catch (e) {
-    console.error(e);
-
-    res.status(500).json({
-      error: e.message
-    });
-  }
-});
-
-app.post("/api/message", async (req, res) => {
-  try {
-    const { sessionId, text } = req.body;
-
-    const state = getSession(sessionId);
-
-    state.messages.push({
-      author: "Alina",
-      text: String(text || ""),
-      channel: "group",
-      at: Date.now()
-    });
-
-    const out = await simulate(state, {
-      type: "USER_MESSAGE",
-      author: "Alina",
-      channel: "group",
-      text: String(text || "")
-    });
-
-    apply(state, out);
-
-    res.json({
-      messages: state.messages.slice(-12)
-    });
-  } catch (e) {
-    console.error(e);
-
-    res.status(500).json({
-      error: e.message
-    });
-  }
-});
-
-app.post("/api/tick", async (req, res) => {
-  try {
-    const state = getSession(
-      req.body.sessionId
-    );
-
-    const out = await simulate(state, {
-      type: "SIMULATION_TICK",
-      description:
-        "Прошло некоторое время. Действуй только если у агента или мира есть естественная причина."
-    });
-
-    apply(state, out);
-
-    res.json({
-      messages: state.messages.slice(-12)
-    });
-  } catch (e) {
-    console.error(e);
-
-    res.status(500).json({
-      error: e.message
-    });
-  }
-});
-
-app.get("/api/health", (req, res) => {
-  res.json({
-    ok: true,
-    ai: !!process.env.OPENROUTER_API_KEY,
-    provider: "openrouter"
+  app.post('/api/start', route(async (req, res, id) => {
+    let state = sessions.get(id);
+    if (!state && req.body.save) { state = existing(req, res, id); if (!state) return; }
+    if (!state) {
+      prune(); state = freshState(); sessions.set(id, state);
+      message(state, 'Five', 'Где ты?', 'Five');
+      message(state, 'Five', 'Алина?', 'Five');
+      message(state, 'Five', 'Ответь.', 'Five');
+    }
+    reply(res, id, state);
+  }));
+  app.post('/api/message', route(async (req, res, id) => {
+    const { text, channel = 'group', requestId } = req.body;
+    if (typeof text !== 'string' || !text.trim() || text.length > 3000 || !validChannel(channel) || typeof requestId !== 'string' || !/^[a-zA-Z0-9_-]{16,80}$/.test(requestId)) return res.status(400).json({ error: 'Проверьте сообщение, чат и идентификатор запроса (до 3000 символов).' });
+    const state = existing(req, res, id); if (!state) return;
+    if (state.processed.includes(requestId)) return reply(res, id, state);
+    if (now() - (state.lastUserAt || 0) < 1500) return res.status(429).json({ error: 'Подождите секунду перед следующим сообщением.' });
+    state.lastUserAt = now();
+    state.processed = [...state.processed, requestId].slice(-100);
+    // The only source of player messages is this validated HTTP endpoint.
+    message(state, 'Alina', text, channel, { requestId });
+    const event = { type: 'USER_MESSAGE', author: 'Alina', text, channel };
+    advanceWorld(state, event);
+    reply(res, id, state, await simulate(state, event));
+  }));
+  app.post('/api/tick', route(async (req, res, id) => {
+    const state = existing(req, res, id); if (!state) return;
+    if (now() - state.lastTick < 90000) return reply(res, id, state);
+    state.lastTick = now();
+    const event = { type: 'SIMULATION_TICK', channel: 'group' };
+    advanceWorld(state, event);
+    reply(res, id, state, await simulate(state, event));
+  }));
+  app.get('/api/health', (req, res) => res.json({ ok: true, ai: !!process.env.OPENROUTER_API_KEY, provider: 'openrouter', model: process.env.OPENROUTER_MODEL || 'openrouter/free', durableSave: !!(process.env.SAVE_SECRET || process.env.OPENROUTER_API_KEY) }));
+  app.use((error, req, res, next) => {
+    if (res.headersSent) return next(error);
+    const badRequest = error.type === 'entity.parse.failed' || error.type === 'entity.too.large';
+    res.status(badRequest ? 400 : 500).json({ error: badRequest ? 'Некорректный или слишком большой запрос.' : 'Не удалось обработать запрос. Попробуйте ещё раз.' });
   });
-});
-
-const port = process.env.PORT || 3000;
-
-app.listen(port, () => {
-  console.log(
-    `Umbrella simulation on ${port} via OpenRouter`
-  );
-});
+  return app;
+}
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const port = process.env.PORT || 3000;
+  createApp().listen(port, () => console.log(`Umbrella simulation on ${port} via OpenRouter`));
+}

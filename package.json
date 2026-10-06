@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test",
+    "check": "node --check server.js && node --check lib/simulation.js && node --check lib/save.js && node --check public/app.js && node --check public/sw.js"
   },
   "engines": {
     "node": ">=20"
