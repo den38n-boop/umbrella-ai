@@ -3,25 +3,29 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#101318"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/icon.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="/icon-192.png"><link rel="stylesheet" href="/style.css">
-<title>Umbrella · Сообщения</title><script src="/app.js" defer></script></head>
+<title>Umbrella · Не тот час</title><script src="/app.js" defer></script></head>
 <body>
-<div id="intro" class="intro" hidden><div class="intro-mark">☂</div><p>Лучше использовать наушники.</p></div>
-<main id="app" class="app">
-<aside class="sidebar" aria-label="Чаты">
-  <header class="list-header"><div class="eyebrow">PRIVATE LINE / 001</div><div class="heading"><h1>Сообщения<span class="dot"></span></h1><button id="settings-toggle" class="icon-button" aria-label="Настройки">···</button></div><p class="list-sub">Некоторые вещи лучше не говорить вслух.</p></header>
-  <section id="settings" class="settings" hidden><button id="notifications">Включить уведомления</button><button id="export">Скачать сохранение</button><label class="import">Загрузить сохранение<input id="import" type="file" accept="application/json"></label><button id="new-game" class="danger">Начать новую игру</button></section>
-  <div class="search-wrap"><label><span>⌕</span><input id="search" type="search" placeholder="Найти разговор" aria-label="Поиск чатов"></label></div>
-  <div class="section-label">ВАШИ РАЗГОВОРЫ <span id="chat-count">08</span></div>
-  <nav id="chat-list" class="chat-list" aria-label="Список разговоров"></nav>
-  <footer class="list-footer"><span class="avatar me">А</span><div><strong>Алина</strong><small>На связи</small></div><span class="secure">◈</span></footer>
-</aside>
-<section id="conversation" class="conversation" aria-label="Переписка">
-  <header class="chat-header"><button id="back" class="icon-button back" aria-label="Вернуться к чатам">‹</button><span id="chat-avatar" class="avatar"></span><div class="chat-heading"><h2 id="chat-title">Академия</h2><p id="chat-status">7 участников · закрытый канал</p></div><span class="header-symbol">☂</span></header>
+<div id="intro" class="intro" hidden><span>☂</span><p>Лучше использовать наушники.</p></div>
+<main class="app">
+<header class="top"><a class="brand" href="/" aria-label="Umbrella">☂</a><div class="title"><div class="eyebrow">ИНТЕРАКТИВНАЯ ИСТОРИЯ</div><h1>Umbrella<span> / Не тот час</span></h1></div><span id="game-time" class="game-time">23:47</span><button id="settings-toggle" class="icon-button" aria-label="Настройки">···</button></header>
+<div class="layout">
+<section class="story" aria-label="Текущая сцена">
+  <div class="scene-heading"><div><span class="scene-dot"></span><span id="location">Академия · гостиная</span></div><button id="scene-toggle" aria-label="Показать состояние сцены" aria-expanded="false">Рядом <span id="present-short">Five, Klaus</span> <span class="chevron">⌄</span></button></div>
   <div id="banner" class="banner" role="status" hidden></div>
-  <div id="history" class="history" role="log" aria-label="Сообщения" aria-live="polite"></div>
+  <div id="settings" class="settings" hidden><button id="export">Скачать сохранение</button><label class="import">Загрузить сохранение<input id="import" type="file" accept="application/json"></label><button id="notifications">Уведомления</button><button id="new-game">Новая история</button></div>
+  <div id="history" class="history" role="log" aria-label="Лента истории" aria-live="polite"></div>
+  <button id="new-events" class="new-events" hidden>Новые события ↓</button>
   <div id="typing" class="typing" role="status"></div>
-  <form id="form" class="composer"><textarea id="input" rows="1" maxlength="3000" placeholder="Написать сообщение…" aria-label="Ваше сообщение"></textarea><button id="send" type="submit" aria-label="Отправить сообщение">↑</button></form>
-  <div class="composer-note">Вы пишете за Алину. Каждое слово имеет значение.</div>
+  <div class="input-area"><form id="form" class="composer"><textarea id="input" rows="1" maxlength="3000" placeholder="Что ты скажешь или сделаешь?" aria-label="Слова или действие Алины"></textarea><button id="send" type="submit" aria-label="Продолжить историю">↑</button></form><div class="input-note">Твои слова. Твои действия. Твоя история.</div></div>
 </section>
+<aside id="scene-panel" class="scene-panel" aria-label="Состояние сцены">
+  <button id="scene-close" class="panel-close icon-button" aria-label="Закрыть состояние сцены">×</button><div class="panel-kicker">СЕЙЧАС В КАДРЕ</div><h2 id="panel-location">Гостиная</h2><p id="situation"></p>
+  <div class="panel-section"><h3>Рядом с тобой</h3><div id="present" class="present"></div></div>
+  <div class="panel-section"><h3>При тебе</h3><div id="inventory" class="inventory"></div></div>
+  <div class="panel-section"><h3>В комнате</h3><div id="objects" class="inventory"></div></div>
+  <div class="panel-section"><h3>Отсюда</h3><div id="exits" class="exits"></div></div>
+  <div class="panel-bottom"><span>☂</span><p>Не все помнят одно и то же.</p></div>
+</aside>
+</div>
 </main>
 </body></html>

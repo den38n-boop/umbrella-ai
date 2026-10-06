@@ -5,11 +5,11 @@
     "alina_power": "Вероятностное искажение: рядом с Алиной конкурирующие возможные исходы могут становиться реальными."
   },
   "rules": [
-    "Будущего сценария не существует.",
-    "Никто из персонажей не знает скрытую истину автоматически.",
-    "Информация распространяется только через наблюдение, сообщения, расследование или рассказ другого персонажа.",
-    "Персонажи могут ошибаться, лгать, молчать и действовать вне чата.",
-    "Алина пишет только сама за себя."
+    "Интерфейс является способом показа реальной сцены, а не внутримировым мессенджером.",
+    "Только игрок решает слова, действия, мысли и эмоции Алины.",
+    "Персонажи слышат и видят только события, свидетелями которых были физически либо через настоящий телефон.",
+    "Место, владение предметом и доступ к его содержимому определяются сервером.",
+    "Скрытая истина не является знанием персонажей. Сезон имеет каркас; маршрут зависит от игрока."
   ],
   "state": {
     "timeline_stability": 0.86,
@@ -18,5 +18,142 @@
     "active_dangers": [],
     "world_events": [],
     "consequences": []
+  },
+  "locations": {
+    "salon": {
+      "name": "Академия · гостиная",
+      "description": "Закрытая дверь, диван и старый стол. Часы слышны из коридора.",
+      "exits": [
+        "corridor"
+      ],
+      "window": "salon_window"
+    },
+    "corridor": {
+      "name": "Академия · коридор",
+      "description": "Часы над лестницей. Двери кухни, гостиной, спальни и архива.",
+      "exits": [
+        "salon",
+        "kitchen",
+        "bedroom",
+        "archive",
+        "basement",
+        "courtyard"
+      ]
+    },
+    "kitchen": {
+      "name": "Академия · кухня",
+      "description": "Лампа над столом мигает. Окно выходит во двор.",
+      "exits": [
+        "corridor"
+      ],
+      "window": "kitchen_window"
+    },
+    "bedroom": {
+      "name": "Академия · спальня",
+      "description": "Тихая комната. Пустой письменный стол и окно.",
+      "exits": [
+        "corridor"
+      ],
+      "window": "bedroom_window"
+    },
+    "archive": {
+      "name": "Академия · архив",
+      "description": "Стеллажи с папками. Следы пыли на полу.",
+      "exits": [
+        "corridor"
+      ]
+    },
+    "basement": {
+      "name": "Академия · подвал",
+      "description": "Тусклая лампа. Металлические шкафы.",
+      "exits": [
+        "corridor"
+      ]
+    },
+    "courtyard": {
+      "name": "Академия · двор",
+      "description": "Холодный воздух. За оградой стоит неприметная машина.",
+      "exits": [
+        "corridor"
+      ]
+    }
+  },
+  "initialLocations": {
+    "Alina": "salon",
+    "Five": "salon",
+    "Klaus": "salon",
+    "Diego": "basement",
+    "Luther": "kitchen",
+    "Allison": "courtyard",
+    "Viktor": "bedroom",
+    "Lila": "archive"
+  },
+  "objects": {
+    "photograph": {
+      "id": "photograph",
+      "name": "Семейная фотография",
+      "location": "salon",
+      "holder": null,
+      "hidden": false,
+      "fixed": false,
+      "examinedBy": []
+    },
+    "file08": {
+      "id": "file08",
+      "name": "Архивная папка",
+      "location": "archive",
+      "holder": null,
+      "hidden": false,
+      "fixed": false,
+      "examinedBy": []
+    },
+    "clock": {
+      "id": "clock",
+      "name": "Настенные часы",
+      "location": "corridor",
+      "holder": null,
+      "hidden": false,
+      "fixed": true,
+      "examinedBy": []
+    },
+    "watch": {
+      "id": "watch",
+      "name": "Карманные часы Five",
+      "location": null,
+      "holder": "Five",
+      "hidden": false,
+      "fixed": false,
+      "examinedBy": []
+    },
+    "salon_window": {
+      "id": "salon_window",
+      "name": "Окно",
+      "location": "salon",
+      "holder": null,
+      "hidden": false,
+      "fixed": true,
+      "open": false,
+      "examinedBy": []
+    },
+    "kitchen_window": {
+      "id": "kitchen_window",
+      "name": "Окно",
+      "location": "kitchen",
+      "holder": null,
+      "hidden": false,
+      "fixed": true,
+      "open": false,
+      "examinedBy": []
+    },
+    "bedroom_window": {
+      "id": "bedroom_window",
+      "name": "Окно",
+      "location": "bedroom",
+      "holder": null,
+      "hidden": false,
+      "fixed": true,
+      "open": false,
+      "examinedBy": []
+    }
   }
 }

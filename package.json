@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server.js",
     "test": "node --test",
-    "check": "node --check server.js && node --check lib/simulation.js && node --check lib/save.js && node --check public/app.js && node --check public/sw.js"
+    "check": "node --check server.js && node --check lib/world-state.js && node --check lib/physical-actions.js && node --check lib/story-engine.js && node --check lib/character-agents.js && node --check lib/validator.js && node --check lib/save.js && node --check public/app.js && node --check public/sw.js"
   },
   "engines": {
     "node": ">=20"

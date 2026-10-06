@@ -2,7 +2,7 @@ import express from 'express';
 import OpenAI from 'openai';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { freshState, message, parseAIOutput, applyAIOutput, actorContext, selectActors, advanceWorld, publicState, validChannel, SYSTEM } from './lib/simulation.js';
+import { freshState, startScene, parseAIOutput, applyAIOutput, actorContext, selectActors, advanceStory, applyPlayerInput, publicState, migrateState, SYSTEM } from './lib/simulation.js';
 import { saveCodec } from './lib/save.js';
 
 export function createApp({ generate, secret = process.env.SAVE_SECRET || process.env.OPENROUTER_API_KEY || randomBytes(32).toString('hex'), now = () => Date.now() } = {}) {
@@ -31,14 +31,14 @@ export function createApp({ generate, secret = process.env.SAVE_SECRET || proces
     });
     return response.choices?.[0]?.message?.content || '';
   });
-  async function simulate(state, event) {
+  async function simulate(state, cause) {
     let aiStatus = 'ok';
-    for (const actor of selectActors(state, event)) {
-      const context = actorContext(state, actor, event.channel, event);
+    for (const actor of selectActors(state, cause)) {
+      const context = actorContext(state, actor);
       let output;
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
-          output = parseAIOutput(await completion({ ...context, retry: attempt ? 'Предыдущий ответ не был корректным JSON. Верни только JSON с массивом messages.' : undefined }));
+          output = parseAIOutput(await completion({ ...context, retry: attempt ? 'Предыдущий ответ не был корректным JSON. Верни только JSON с массивом events.' : undefined }));
           break;
         } catch (error) {
           // Log only an allowlisted category, never SDK request bodies, tokens or game text.
@@ -46,7 +46,7 @@ export function createApp({ generate, secret = process.env.SAVE_SECRET || proces
           if (category !== 'invalid_json' || attempt === 1) { console.warn(`AI: ${category}`); aiStatus = 'unavailable'; break; }
         }
       }
-      if (output) applyAIOutput(state, output, { actor, channel: event.channel });
+      if (output) applyAIOutput(state, output, { actor });
     }
     return aiStatus;
   }
@@ -71,8 +71,8 @@ export function createApp({ generate, secret = process.env.SAVE_SECRET || proces
   function existing(req, res, id) {
     if (sessions.has(id)) return sessions.get(id);
     if (req.body.save) {
-      try { const state = codec.decode(id, req.body.save); prune(); sessions.set(id, state); return state; }
-      catch { res.status(422).json({ error: 'Сохранение не удалось проверить. Локальная переписка остаётся на устройстве.', code: 'INVALID_SAVE' }); return; }
+      try { const state = migrateState(codec.decode(id, req.body.save)); prune(); sessions.set(id, state); return state; }
+      catch { res.status(422).json({ error: 'Сохранение не удалось проверить. Локальная история остаётся на устройстве.', code: 'INVALID_SAVE' }); return; }
     }
     res.status(410).json({ error: 'Сессия отсутствует. Восстановите сохранение или начните новую игру.', code: 'SESSION_MISSING' });
   }
@@ -81,33 +81,29 @@ export function createApp({ generate, secret = process.env.SAVE_SECRET || proces
     if (!state && req.body.save) { state = existing(req, res, id); if (!state) return; }
     if (!state) {
       prune(); state = freshState(); sessions.set(id, state);
-      message(state, 'Five', 'Где ты?', 'Five');
-      message(state, 'Five', 'Алина?', 'Five');
-      message(state, 'Five', 'Ответь.', 'Five');
+      startScene(state);
     }
     reply(res, id, state);
   }));
   app.post('/api/message', route(async (req, res, id) => {
-    const { text, channel = 'group', requestId } = req.body;
-    if (typeof text !== 'string' || !text.trim() || text.length > 3000 || !validChannel(channel) || typeof requestId !== 'string' || !/^[a-zA-Z0-9_-]{16,80}$/.test(requestId)) return res.status(400).json({ error: 'Проверьте сообщение, чат и идентификатор запроса (до 3000 символов).' });
+    const { text, requestId } = req.body;
+    if (typeof text !== 'string' || !text.trim() || text.length > 3000 || (req.body.channel !== undefined && req.body.channel !== 'scene') || typeof requestId !== 'string' || !/^[a-zA-Z0-9_-]{16,80}$/.test(requestId)) return res.status(400).json({ error: 'Проверьте действие и идентификатор запроса (до 3000 символов).' });
     const state = existing(req, res, id); if (!state) return;
     if (state.processed.includes(requestId)) return reply(res, id, state);
     if (now() - (state.lastUserAt || 0) < 1500) return res.status(429).json({ error: 'Подождите секунду перед следующим сообщением.' });
     state.lastUserAt = now();
     state.processed = [...state.processed, requestId].slice(-100);
     // The only source of player messages is this validated HTTP endpoint.
-    message(state, 'Alina', text, channel, { requestId });
-    const event = { type: 'USER_MESSAGE', author: 'Alina', text, channel };
-    advanceWorld(state, event);
-    reply(res, id, state, await simulate(state, event));
+    applyPlayerInput(state, text, requestId);
+    advanceStory(state, 'player');
+    reply(res, id, state, await simulate(state, 'player'));
   }));
   app.post('/api/tick', route(async (req, res, id) => {
     const state = existing(req, res, id); if (!state) return;
     if (now() - state.lastTick < 90000) return reply(res, id, state);
     state.lastTick = now();
-    const event = { type: 'SIMULATION_TICK', channel: 'group' };
-    advanceWorld(state, event);
-    reply(res, id, state, await simulate(state, event));
+    advanceStory(state, 'tick');
+    reply(res, id, state, await simulate(state, 'tick'));
   }));
   app.get('/api/health', (req, res) => res.json({ ok: true, ai: !!process.env.OPENROUTER_API_KEY, provider: 'openrouter', model: process.env.OPENROUTER_MODEL || 'openrouter/free', durableSave: !!(process.env.SAVE_SECRET || process.env.OPENROUTER_API_KEY) }));
   app.use((error, req, res, next) => {
